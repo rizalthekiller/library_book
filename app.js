@@ -636,7 +636,7 @@ async function performBarcodeDirectSearch(isbn) {
                 year: '',
                 coverUrl: ''
             });
-            showToast('ISBN terdeteksi, silakan lengkapi data manual.', 'info');
+            showToast('Gagal menemukan data buku di internet! Silakan isi manual.', 'error');
         }
     } catch (e) {
         console.error('Barcode search error:', e);
@@ -649,7 +649,7 @@ async function performBarcodeDirectSearch(isbn) {
             year: '',
             coverUrl: ''
         });
-        showToast('ISBN terdeteksi, silakan lengkapi data manual.', 'info');
+        showToast('Koneksi bermasalah atau pencarian gagal! Silakan isi manual.', 'error');
     }
 }
 

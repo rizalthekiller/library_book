@@ -41,9 +41,9 @@
     height: 250px;
     border-radius: 50%;
     filter: blur(100px);
-    z-index: 0;
+    z-index: 1; /* Render below active text and buttons */
     opacity: 0.35;
-    pointer-events: none;
+    pointer-events: none !important;
 }
 .orb-1 {
     background: #ff007a;
@@ -204,6 +204,7 @@ body {
     flex: 1;
     overflow-y: auto;
     position: relative;
+    z-index: 2; /* Safe stacking layer on top of ambient orbs */
     scroll-behavior: smooth;
     padding-bottom: 80px; /* Safe space for nav bar */
 }

@@ -72,6 +72,8 @@ const btnCancelEdit = document.getElementById('btn-cancel-edit');
 
 // System UI
 const connectionStatus = document.getElementById('connection-status');
+const aiStatus = document.getElementById('ai-status');
+const btnAiAnalyze = document.getElementById('btn-ai-analyze');
 const modalAbout = document.getElementById('modal-about');
 const modalClose = document.querySelector('.modal-close');
 const toastContainer = document.getElementById('toast-container');
@@ -84,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     updateNetworkStatus();
     registerServiceWorker();
+    checkLocalAISupport();
     
     // Listen to network status changes
     window.addEventListener('online', updateNetworkStatus);
@@ -111,6 +114,125 @@ function registerServiceWorker() {
         navigator.serviceWorker.register('./sw.js')
             .then(reg => console.log('Service Worker registered with scope:', reg.scope))
             .catch(err => console.error('Service Worker registration failed:', err));
+    }
+}
+
+function checkLocalAISupport() {
+    const isSupported = !!(window.ai && (window.ai.languageModel || window.ai.assistant));
+    if (isSupported) {
+        aiStatus.className = 'status-badge online';
+        aiStatus.style.background = 'rgba(168, 85, 247, 0.15)';
+        aiStatus.style.borderColor = 'rgba(168, 85, 247, 0.3)';
+        aiStatus.style.color = '#d8b4fe';
+        aiStatus.innerHTML = '✨ AI Ready';
+    } else {
+        aiStatus.className = 'status-badge offline';
+        aiStatus.style.background = 'rgba(255, 255, 255, 0.05)';
+        aiStatus.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+        aiStatus.style.color = '#64748b';
+        aiStatus.innerHTML = '✨ AI Off';
+    }
+}
+
+async function analyzeTextWithGeminiNano() {
+    const rawText = ocrRawText.value.trim();
+    if (!rawText) {
+        showToast('Tolong masukkan teks cover terlebih dahulu!', 'error');
+        return;
+    }
+
+    const hasAI = !!(window.ai && (window.ai.languageModel || window.ai.assistant));
+    if (!hasAI) {
+        alert(
+            "AI Lokal (Gemini Nano) belum aktif di browser Anda!\n\n" +
+            "Cara mengaktifkannya secara gratis di Google Chrome:\n" +
+            "1. Buka tab baru dan ketik URL: chrome://flags\n" +
+            "2. Cari 'Optimization Guide on-device model' dan ubah menjadi 'Enabled BypassPerfRequirement' atau 'Enabled'.\n" +
+            "3. Cari 'Prompt API for Gemini Nano' dan ubah menjadi 'Enabled'.\n" +
+            "4. Relaunch/restart browser Chrome Anda.\n" +
+            "5. Buka kembali aplikasi ini dan tunggu beberapa menit untuk membiarkan Chrome mengunduh model AI portabel secara otomatis."
+        );
+        showToast('Aktifkan Gemini Nano di chrome://flags', 'info');
+        return;
+    }
+
+    ocrProgressOverlay.classList.add('active');
+    ocrProgressText.textContent = 'Membuka Sesi AI Lokal...';
+    ocrProgressBar.style.width = '30%';
+
+    try {
+        let session;
+        if (window.ai.languageModel) {
+            session = await window.ai.languageModel.create({
+                systemPrompt: "Kamu adalah AI asisten perpustakaan lokal. Analisa teks hasil OCR cover buku dan ekstrak data ke format JSON."
+            });
+        } else {
+            session = await window.ai.assistant.create();
+        }
+
+        ocrProgressText.textContent = 'Gemini Nano sedang memproses data...';
+        ocrProgressBar.style.width = '70%';
+
+        const prompt = `
+        Tolong analisis teks hasil OCR cover buku berikut:
+        "${rawText}"
+
+        Ekstrak informasi buku ke format JSON mentah tanpa markdown block (\`\`\`json) atau kata pengantar tambahan. Isi nilai kosong jika tidak ditemukan. Format harus tepat seperti ini:
+        {
+          "title": "Judul Buku",
+          "author": "Nama Penulis/Pengarang",
+          "publisher": "Nama Penerbit",
+          "isbn": "ISBN saja",
+          "year": "Tahun Terbit"
+        }
+        `;
+
+        const result = await session.prompt(prompt);
+        ocrProgressBar.style.width = '100%';
+        session.destroy();
+
+        ocrProgressOverlay.classList.remove('active');
+
+        let parsedBook = {};
+        try {
+            const cleanResult = result.replace(/```json/g, '').replace(/```/g, '').trim();
+            parsedBook = JSON.parse(cleanResult);
+        } catch (e) {
+            console.error('Failed to parse AI JSON:', e, result);
+            parsedBook = {
+                title: extractFallbackPattern(result, 'title') || extractFallbackPattern(result, 'judul') || '',
+                author: extractFallbackPattern(result, 'author') || extractFallbackPattern(result, 'pengarang') || extractFallbackPattern(result, 'penulis') || '',
+                publisher: extractFallbackPattern(result, 'publisher') || extractFallbackPattern(result, 'penerbit') || '',
+                isbn: extractFallbackPattern(result, 'isbn') || '',
+                year: extractFallbackPattern(result, 'year') || extractFallbackPattern(result, 'tahun') || ''
+            };
+        }
+
+        openDetailForm({
+            title: parsedBook.title || '',
+            author: parsedBook.author || '',
+            publisher: parsedBook.publisher || '',
+            isbn: parsedBook.isbn || '',
+            year: parsedBook.year || '',
+            coverUrl: ''
+        });
+
+        showToast('AI berhasil menganalisis cover!', 'success');
+
+    } catch (err) {
+        console.error('Gemini Nano prompt error:', err);
+        ocrProgressOverlay.classList.remove('active');
+        showToast('Gagal memproses dengan AI lokal.', 'error');
+    }
+}
+
+function extractFallbackPattern(text, field) {
+    try {
+        const regex = new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`, 'i');
+        const match = text.match(regex);
+        return match ? match[1] : '';
+    } catch(e) {
+        return '';
     }
 }
 
@@ -162,6 +284,7 @@ function setupEventListeners() {
     // OCR Workflow Actions
     btnBackToHome.addEventListener('click', () => navigateTo('dashboard'));
     btnSearchBooks.addEventListener('click', performBookSearch);
+    btnAiAnalyze.addEventListener('click', analyzeTextWithGeminiNano);
 
     // Results Actions
     btnBackToOcr.addEventListener('click', () => navigateTo('ocr'));

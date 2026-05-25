@@ -670,6 +670,16 @@ async function runCloudOCR() {
     ocrProgressBar.style.width = '20%';
 
     try {
+        // 1. Try static barcode detection first (Instant!)
+        const detectedBarcode = await tryOfflineBarcodeFromImage(state.selectedImageBase64);
+        if (detectedBarcode) {
+            ocrProgressOverlay.classList.remove('active');
+            ocrRawText.value = detectedBarcode;
+            showToast(`Barcode ISBN Terdeteksi Instan!`, 'success');
+            performBarcodeDirectSearch(detectedBarcode);
+            return;
+        }
+
         const rawBase64 = state.selectedImageBase64.split(',')[1];
         
         const formData = new FormData();
@@ -696,7 +706,9 @@ async function runCloudOCR() {
         const parsedResult = data.ParsedResults ? data.ParsedResults[0] : null;
         const text = parsedResult ? parsedResult.ParsedText : '';
 
-        ocrRawText.value = sanitizeOCRText(text);
+        // Extract ISBN specifically
+        const isbn = extractISBN(text);
+        ocrRawText.value = isbn || sanitizeOCRText(text);
         
         // Map OCR.space overlay words to standard format for Google Lens highlights
         const ocrSpaceWords = [];
@@ -725,10 +737,11 @@ async function runCloudOCR() {
         state.lastDetectedWords = ocrSpaceWords;
         renderLensHighlights(ocrSpaceWords);
 
-        showToast('Deteksi Cloud AI sukses!', 'success');
-        
-        if (!text.trim()) {
-            showToast('Cloud AI tidak menemukan teks di gambar.', 'info');
+        if (isbn) {
+            showToast(`Deteksi Cloud AI sukses! ISBN ditemukan: ${isbn}`, 'success');
+            performBarcodeDirectSearch(isbn);
+        } else {
+            showToast('Deteksi Cloud AI sukses! Tidak ada ISBN terdeteksi.', 'info');
         }
 
     } catch (error) {
@@ -760,7 +773,7 @@ function handleImageUpload(e) {
 // -------------------------------------------------------------------------
 async function runClientSideOCR(imageSrc) {
     ocrProgressOverlay.classList.add('active');
-    ocrProgressText.textContent = 'Membaca data cover...';
+    ocrProgressText.textContent = 'Memindai barcode dari gambar...';
     ocrProgressBar.style.width = '10%';
     ocrRawText.value = '';
     
@@ -770,6 +783,19 @@ async function runClientSideOCR(imageSrc) {
     state.lastDetectedWords = [];
 
     try {
+        // 1. Try static barcode detection first (Instant!)
+        const detectedBarcode = await tryOfflineBarcodeFromImage(imageSrc);
+        if (detectedBarcode) {
+            ocrProgressOverlay.classList.remove('active');
+            ocrRawText.value = detectedBarcode;
+            showToast(`Barcode ISBN Terdeteksi Instan!`, 'success');
+            performBarcodeDirectSearch(detectedBarcode);
+            return;
+        }
+
+        // 2. Fallback to standard OCR
+        ocrProgressText.textContent = 'Membaca teks cover...';
+        
         // Initialize Tesseract Worker
         const worker = await Tesseract.createWorker('ind+eng', 1, {
             logger: m => {
@@ -790,17 +816,20 @@ async function runClientSideOCR(imageSrc) {
         
         await worker.terminate();
 
-        // Output raw OCR text (sanitized)
-        ocrRawText.value = sanitizeOCRText(text);
+        // Extract clean ISBN
+        const isbn = extractISBN(text);
+        ocrRawText.value = isbn || sanitizeOCRText(text);
         ocrProgressOverlay.classList.remove('active');
-        showToast('Deteksi teks cover sukses!', 'success');
         
         // Render Google Lens word bounding highlights
         state.lastDetectedWords = words;
         renderLensHighlights(words);
         
-        if (!text.trim()) {
-            showToast('Teks cover kurang jelas, ketik manual jika perlu.', 'info');
+        if (isbn) {
+            showToast(`Deteksi sukses! ISBN ditemukan: ${isbn}`, 'success');
+            performBarcodeDirectSearch(isbn);
+        } else {
+            showToast('Teks ISBN tidak terdeteksi. Silakan ketik manual.', 'info');
         }
     } catch (error) {
         console.error('OCR Process error:', error);
@@ -931,6 +960,57 @@ function sanitizeOCRText(text) {
     });
     
     return words.join(' ');
+}
+
+// Static image barcode detector helper (runs offline)
+async function tryOfflineBarcodeFromImage(imageSrc) {
+    if (!('BarcodeDetector' in window)) return null;
+    try {
+        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+        
+        const img = new Image();
+        img.src = imageSrc;
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        
+        const barcodes = await detector.detect(img);
+        if (barcodes.length > 0) {
+            const rawVal = barcodes[0].rawValue;
+            if (rawVal.startsWith('978') || rawVal.startsWith('979') || rawVal.length === 10) {
+                return rawVal;
+            }
+        }
+    } catch (e) {
+        console.log('Static image barcode detect skip:', e);
+    }
+    return null;
+}
+
+// Specific regular-expression based ISBN extractor
+function extractISBN(text) {
+    if (!text) return '';
+    
+    const cleanText = text.replace(/[\r\n]+/g, ' ');
+    
+    // Look for standard EAN-13/ISBN-10 patterns
+    const regex13 = /\b(?:97[89][-\s]?)?[0-9]{1,5}[-\s]?[0-9]+[-\s]?[0-9]+[-\s]?[0-9Xx]\b/g;
+    const matches = cleanText.match(regex13) || [];
+    
+    for (let match of matches) {
+        const cleanVal = match.replace(/[-\s]/g, '');
+        if (cleanVal.length === 13 && (cleanVal.startsWith('978') || cleanVal.startsWith('979'))) {
+            return cleanVal;
+        }
+        if (cleanVal.length === 10) {
+            return cleanVal;
+        }
+    }
+    
+    // Simple sequence backup
+    const digitsMatch = cleanText.match(/\b\d{9,14}\b/);
+    return digitsMatch ? digitsMatch[0] : '';
 }
 
 // Query free APIs simultaneously

@@ -28,7 +28,7 @@
         <header class="app-header">
             <div class="logo">
                 <span class="icon-book-open">📚</span>
-                <h1>Pustaka<span>Scan</span></h1>
+                <h1>Pustaka<span>ISBN Scan</span></h1>
             </div>
             <div class="status-indicator" style="display: flex; gap: 6px; align-items: center;">
                 <span id="ai-status" class="status-badge offline" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.2); font-size: 0.7rem; padding: 2px 6px;">
@@ -45,8 +45,8 @@
             <!-- Screen 1: Dashboard / Home -->
             <section id="screen-dashboard" class="screen active">
                 <div class="hero-section">
-                    <h2>Scan Cover Buku Mudah & Cepat</h2>
-                    <p>Ambil foto cover buku atau upload dari galeri untuk mendeteksi informasi buku secara instan.</p>
+                    <h2>Scan Barcode & ISBN Buku Instan</h2>
+                    <p>Arahkan kamera ke barcode EAN-13/ISBN di belakang buku, atau upload foto barcode/nomor ISBN untuk pencarian otomatis.</p>
                 </div>
 
                 <!-- Quick Action Cards -->
@@ -55,7 +55,7 @@
                         <div class="card-icon">📸</div>
                         <div class="card-info">
                             <h3>Buka Kamera</h3>
-                            <p>Ambil foto cover buku langsung</p>
+                            <p>Scan barcode belakang buku secara langsung</p>
                         </div>
                     </button>
                     
@@ -64,7 +64,7 @@
                         <div class="card-icon">📁</div>
                         <div class="card-info">
                             <h3>Pilih Gambar</h3>
-                            <p>Unggah foto cover dari galeri</p>
+                            <p>Unggah foto barcode atau tulisan ISBN</p>
                         </div>
                     </label>
                 </div>
@@ -102,7 +102,7 @@
                         <div class="scan-frame">
                             <div class="scan-laser"></div>
                         </div>
-                        <p class="scan-tip">Posisikan teks cover buku di dalam area ini</p>
+                        <p class="scan-tip">Posisikan Barcode atau teks ISBN di dalam area ini</p>
                     </div>
 
                     <!-- Camera Controls -->
@@ -118,7 +118,7 @@
             <section id="screen-ocr" class="screen">
                 <div class="back-nav">
                     <button id="btn-back-to-home" class="btn-back">← Kembali</button>
-                    <h3>Hasil Deteksi Cover</h3>
+                    <h3>Hasil Deteksi Barcode / ISBN</h3>
                 </div>
 
                 <div class="ocr-workflow-container">
@@ -137,8 +137,8 @@
 
                     <div class="ocr-result-form">
                         <div class="input-group">
-                            <label for="ocr-raw-text">Teks Terdeteksi (Edit jika ada kesalahan):</label>
-                            <textarea id="ocr-raw-text" rows="4" placeholder="Hasil OCR akan muncul di sini..."></textarea>
+                            <label for="ocr-raw-text">Nomor ISBN Terdeteksi (Ketik manual jika salah/kurang):</label>
+                            <textarea id="ocr-raw-text" rows="2" placeholder="Contoh: 978602..."></textarea>
                         </div>
 
                         <div class="search-options" style="display: flex; flex-direction: column; gap: 10px;">

@@ -273,8 +273,9 @@ function renderLensHighlights(words) {
     const scaleY = renderedHeight / naturalHeight;
 
     words.forEach(word => {
-        // Only render words with good confidence or reasonable length
-        if (word.confidence < 45 || word.text.trim().length < 2) return;
+        // Sanitize and only render words with good confidence or reasonable length
+        const cleanedText = sanitizeOCRText(word.text);
+        if (word.confidence < 45 || cleanedText.length < 2) return;
 
         const box = document.createElement('div');
         box.className = 'lens-box';
@@ -567,8 +568,9 @@ function renderLiveLensHighlights(words, ocrWidth, ocrHeight) {
     const scaleY = rect.height / ocrHeight;
 
     words.forEach(word => {
-        // High confidence long terms only
-        if (word.confidence < 50 || word.text.trim().length < 3) return;
+        // High confidence long terms only (and sanitize from HTML or typical OCR garbage like "br")
+        const cleanedText = sanitizeOCRText(word.text);
+        if (word.confidence < 50 || cleanedText.length < 3) return;
 
         const box = document.createElement('div');
         box.className = 'live-lens-box';
@@ -694,7 +696,7 @@ async function runCloudOCR() {
         const parsedResult = data.ParsedResults ? data.ParsedResults[0] : null;
         const text = parsedResult ? parsedResult.ParsedText : '';
 
-        ocrRawText.value = text.trim();
+        ocrRawText.value = sanitizeOCRText(text);
         
         // Map OCR.space overlay words to standard format for Google Lens highlights
         const ocrSpaceWords = [];
@@ -788,8 +790,8 @@ async function runClientSideOCR(imageSrc) {
         
         await worker.terminate();
 
-        // Output raw OCR text
-        ocrRawText.value = text.trim();
+        // Output raw OCR text (sanitized)
+        ocrRawText.value = sanitizeOCRText(text);
         ocrProgressOverlay.classList.remove('active');
         showToast('Deteksi teks cover sukses!', 'success');
         
@@ -894,6 +896,41 @@ function cleanOCRTextForQuery(text) {
 
     // Limit query word count to prevent query bloating
     return words.slice(0, 7).join(' ');
+}
+
+// Advanced OCR sanitization to remove symbols, HTML tags (like <br>), and garbage words (like "br")
+function sanitizeOCRText(text) {
+    if (!text) return '';
+    
+    // 1. Remove HTML tags like <br> or </br>
+    let clean = text.replace(/<[^>]*>/g, ' ');
+    
+    // 2. Remove common OCR noise words and strange isolated symbols
+    // Keep standard alphanumeric, spaces, hyphens, dots, colons, slashes
+    const noisePatterns = [
+        /\b(br|Ib|lb|cl|co|rt|tl|vl|xi|xo|ox|lll|iii|ii|xx)\b/gi, // Common character segments misread by Tesseract
+        /[^a-zA-Z0-9\s\-\.\:\/]/g, // Get rid of typical layout symbol noise like ©, ®, |, etc.
+    ];
+    
+    noisePatterns.forEach(pattern => {
+        clean = clean.replace(pattern, ' ');
+    });
+    
+    // 3. Normalize spaces
+    clean = clean.replace(/\s+/g, ' ').trim();
+    
+    // 4. Filter garbage fragments
+    let words = clean.split(' ');
+    words = words.filter(word => {
+        // Keep potentially clean EAN / ISBN strings
+        const isPotentialIsbn = /^[0-9\-]{9,17}$/.test(word);
+        if (isPotentialIsbn) return true;
+        
+        // Remove ultra-short noise fragments unless alphanumeric
+        return word.length >= 3 && /[a-zA-Z]/g.test(word);
+    });
+    
+    return words.join(' ');
 }
 
 // Query free APIs simultaneously

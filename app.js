@@ -11,7 +11,8 @@ const state = {
     searchCache: {},
     activeEditingBookId: null,
     aiModelInstance: null,
-    lastDetectedWords: []
+    lastDetectedWords: [],
+    barcodeInterval: null
 };
 
 // -------------------------------------------------------------------------
@@ -76,6 +77,7 @@ const btnCancelEdit = document.getElementById('btn-cancel-edit');
 const connectionStatus = document.getElementById('connection-status');
 const aiStatus = document.getElementById('ai-status');
 const btnAiAnalyze = document.getElementById('btn-ai-analyze');
+const btnCloudOcr = document.getElementById('btn-cloud-ocr');
 const modalAbout = document.getElementById('modal-about');
 const modalClose = document.querySelector('.modal-close');
 const toastContainer = document.getElementById('toast-container');
@@ -354,6 +356,7 @@ function setupEventListeners() {
     btnBackToHome.addEventListener('click', () => navigateTo('dashboard'));
     btnSearchBooks.addEventListener('click', performBookSearch);
     btnAiAnalyze.addEventListener('click', analyzeTextWithTransformersJS);
+    btnCloudOcr.addEventListener('click', runCloudOCR);
 
     // Results Actions
     btnBackToOcr.addEventListener('click', () => navigateTo('ocr'));
@@ -408,6 +411,7 @@ async function startCamera() {
         state.currentCameraStream = stream;
         cameraPreview.srcObject = stream;
         showToast('Kamera aktif', 'info');
+        startBarcodeDetection(); // Start the real-time scanning loop!
     } catch (error) {
         console.error('Camera access failed:', error);
         showToast('Gagal mengakses kamera. Menggunakan unggah file sebagai gantinya.', 'error');
@@ -417,6 +421,10 @@ async function startCamera() {
 }
 
 function stopCamera() {
+    if (state.barcodeInterval) {
+        clearInterval(state.barcodeInterval);
+        state.barcodeInterval = null;
+    }
     if (state.currentCameraStream) {
         state.currentCameraStream.getTracks().forEach(track => track.stop());
         state.currentCameraStream = null;
@@ -450,6 +458,182 @@ function capturePhoto() {
     ocrPreviewImg.src = dataUrl;
     navigateTo('ocr');
     runClientSideOCR(dataUrl);
+}
+
+// Start native real-time barcode scanning loop
+async function startBarcodeDetection() {
+    if (!('BarcodeDetector' in window)) {
+        console.log('BarcodeDetector API not supported in this browser environment.');
+        return;
+    }
+    
+    try {
+        // Supported EAN_13 format for book barcodes
+        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+        
+        state.barcodeInterval = setInterval(async () => {
+            if (!state.currentCameraStream) return;
+            
+            try {
+                const barcodes = await detector.detect(cameraPreview);
+                if (barcodes.length > 0) {
+                    const isbn = barcodes[0].rawValue;
+                    
+                    // ISBNs always start with 978 or 979
+                    if (isbn.startsWith('978') || isbn.startsWith('979')) {
+                        clearInterval(state.barcodeInterval);
+                        state.barcodeInterval = null;
+                        
+                        showToast(`Barcode ISBN Terdeteksi: ${isbn}`, 'success');
+                        
+                        // Stop camera & sound/vibrate
+                        stopCamera();
+                        if (navigator.vibrate) navigator.vibrate(200);
+                        
+                        // Direct lookup
+                        performBarcodeDirectSearch(isbn);
+                    }
+                }
+            } catch (err) {
+                // Ignore frame-by-frame detector errors
+            }
+        }, 500); // Scan every 500ms
+    } catch (e) {
+        console.error('Barcode detection failed to initialize:', e);
+    }
+}
+
+// Bypasses OCR screen to search and open book detail instantly
+async function performBarcodeDirectSearch(isbn) {
+    ocrProgressOverlay.classList.add('active');
+    ocrProgressText.textContent = 'Mencari buku via ISBN...';
+    ocrProgressBar.style.width = '50%';
+    
+    try {
+        const books = await fetchBooksFromAPIs(`isbn:${isbn}`);
+        ocrProgressOverlay.classList.remove('active');
+        
+        if (books.length > 0) {
+            const book = books[0];
+            openDetailForm({
+                title: book.title || '',
+                author: book.author || '',
+                publisher: book.publisher || '',
+                isbn: isbn,
+                year: book.year || '',
+                coverUrl: book.coverUrl || ''
+            });
+            showToast('Buku berhasil ditemukan via ISBN!', 'success');
+        } else {
+            // Pre-fill ISBN but open manual form
+            openDetailForm({
+                title: '',
+                author: '',
+                publisher: '',
+                isbn: isbn,
+                year: '',
+                coverUrl: ''
+            });
+            showToast('ISBN terdeteksi, silakan lengkapi data manual.', 'info');
+        }
+    } catch (e) {
+        console.error('Barcode search error:', e);
+        ocrProgressOverlay.classList.remove('active');
+        openDetailForm({
+            title: '',
+            author: '',
+            publisher: '',
+            isbn: isbn,
+            year: '',
+            coverUrl: ''
+        });
+        showToast('ISBN terdeteksi, silakan lengkapi data manual.', 'info');
+    }
+}
+
+// Cloud AI OCR (OCR.space API implementation with detailed coordinate mapping)
+async function runCloudOCR() {
+    if (!state.selectedImageBase64) {
+        showToast('Tidak ada gambar cover untuk diproses!', 'error');
+        return;
+    }
+
+    if (!navigator.onLine) {
+        showToast('Koneksi internet diperlukan untuk Cloud AI OCR.', 'error');
+        return;
+    }
+
+    ocrProgressOverlay.classList.add('active');
+    ocrProgressText.textContent = 'Menghubungi Cloud AI OCR (Sangat Akurat)...';
+    ocrProgressBar.style.width = '20%';
+
+    try {
+        const rawBase64 = state.selectedImageBase64.split(',')[1];
+        
+        const formData = new FormData();
+        formData.append('base64Image', `data:image/jpeg;base64,${rawBase64}`);
+        formData.append('apikey', 'K88729379888957'); // Active public API key
+        formData.append('language', 'eng');
+        formData.append('isOverlayRequired', 'true');
+
+        ocrProgressBar.style.width = '50%';
+        ocrProgressText.textContent = 'Menganalisis teks cover via Cloud AI...';
+
+        const response = await fetch('https://api.ocr.space/parse/image', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+        ocrProgressBar.style.width = '90%';
+
+        if (data.IsErroredOnProcessing) {
+            throw new Error(data.ErrorMessage ? data.ErrorMessage[0] : 'Processing error');
+        }
+
+        const parsedResult = data.ParsedResults ? data.ParsedResults[0] : null;
+        const text = parsedResult ? parsedResult.ParsedText : '';
+
+        ocrRawText.value = text.trim();
+        
+        // Map OCR.space overlay words to standard format for Google Lens highlights
+        const ocrSpaceWords = [];
+        if (parsedResult && parsedResult.TextOverlay) {
+            const lines = parsedResult.TextOverlay.Lines || [];
+            lines.forEach(line => {
+                const words = line.Words || [];
+                words.forEach(w => {
+                    ocrSpaceWords.push({
+                        text: w.WordText,
+                        confidence: 90,
+                        bbox: {
+                            x0: w.Left,
+                            y0: w.Top,
+                            x1: w.Left + w.Width,
+                            y1: w.Top + w.Height
+                        }
+                    });
+                });
+            });
+        }
+
+        ocrProgressBar.style.width = '100%';
+        ocrProgressOverlay.classList.remove('active');
+        
+        state.lastDetectedWords = ocrSpaceWords;
+        renderLensHighlights(ocrSpaceWords);
+
+        showToast('Deteksi Cloud AI sukses!', 'success');
+        
+        if (!text.trim()) {
+            showToast('Cloud AI tidak menemukan teks di gambar.', 'info');
+        }
+
+    } catch (error) {
+        console.error('Cloud OCR error:', error);
+        ocrProgressOverlay.classList.remove('active');
+        showToast('Cloud AI sibuk atau gagal. Gunakan OCR lokal.', 'error');
+    }
 }
 
 // Handle local file uploaded from device gallery

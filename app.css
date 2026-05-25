@@ -1278,3 +1278,25 @@ textarea:focus, input[type="text"]:focus, input[type="number"]:focus {
         transform: scale(1);
     }
 }
+
+.live-lens-box {
+    position: absolute;
+    border: 1px dashed rgba(168, 85, 247, 0.7);
+    background: rgba(168, 85, 247, 0.15);
+    border-radius: 4px;
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+    cursor: pointer;
+    pointer-events: auto; /* Allow clicking the box itself */
+    animation: live-glow 1.5s infinite alternate;
+}
+
+@keyframes live-glow {
+    from {
+        box-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
+        border-color: rgba(168, 85, 247, 0.5);
+    }
+    to {
+        box-shadow: 0 0 14px rgba(168, 85, 247, 0.8);
+        border-color: rgba(168, 85, 247, 1);
+    }
+}

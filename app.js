@@ -12,7 +12,9 @@ const state = {
     activeEditingBookId: null,
     aiModelInstance: null,
     lastDetectedWords: [],
-    barcodeInterval: null
+    barcodeInterval: null,
+    liveOcrWorker: null,
+    liveOcrInterval: null
 };
 
 // -------------------------------------------------------------------------
@@ -412,6 +414,7 @@ async function startCamera() {
         cameraPreview.srcObject = stream;
         showToast('Kamera aktif', 'info');
         startBarcodeDetection(); // Start the real-time scanning loop!
+        startLiveLensScanning(); // Start the live Google Lens scanner!
     } catch (error) {
         console.error('Camera access failed:', error);
         showToast('Gagal mengakses kamera. Menggunakan unggah file sebagai gantinya.', 'error');
@@ -425,6 +428,13 @@ function stopCamera() {
         clearInterval(state.barcodeInterval);
         state.barcodeInterval = null;
     }
+    if (state.liveOcrInterval) {
+        clearInterval(state.liveOcrInterval);
+        state.liveOcrInterval = null;
+    }
+    const liveOverlay = document.getElementById('live-lens-overlay');
+    if (liveOverlay) liveOverlay.innerHTML = '';
+    
     if (state.currentCameraStream) {
         state.currentCameraStream.getTracks().forEach(track => track.stop());
         state.currentCameraStream = null;
@@ -501,6 +511,96 @@ async function startBarcodeDetection() {
     } catch (e) {
         console.error('Barcode detection failed to initialize:', e);
     }
+}
+
+// Reusable live worker initializer
+async function initLiveOcrWorker() {
+    if (!state.liveOcrWorker) {
+        state.liveOcrWorker = await Tesseract.createWorker('ind+eng');
+    }
+}
+
+// Background OCR loops on active camera feed
+async function startLiveLensScanning() {
+    await initLiveOcrWorker();
+    
+    if (state.liveOcrInterval) clearInterval(state.liveOcrInterval);
+    
+    // Check frames every 1.5 seconds for background OCR
+    state.liveOcrInterval = setInterval(async () => {
+        if (!state.currentCameraStream || !state.liveOcrWorker) return;
+        
+        const width = cameraPreview.videoWidth;
+        const height = cameraPreview.videoHeight;
+        if (width === 0 || height === 0) return;
+        
+        // Scale down preview frame to 1/2 size for high performance / low latency scans
+        cameraCanvas.width = width / 2;
+        cameraCanvas.height = height / 2;
+        
+        const ctx = cameraCanvas.getContext('2d');
+        ctx.drawImage(cameraPreview, 0, 0, width / 2, height / 2);
+        
+        try {
+            const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.6);
+            const ret = await state.liveOcrWorker.recognize(dataUrl);
+            const words = ret.data.words || [];
+            
+            // Render these word boxes on live camera view!
+            renderLiveLensHighlights(words, width / 2, height / 2);
+        } catch (e) {
+            // Suppress frames skipped during busy cycles
+        }
+    }, 1500);
+}
+
+// Render dynamic overlays directly on top of active video preview
+function renderLiveLensHighlights(words, ocrWidth, ocrHeight) {
+    const overlay = document.getElementById('live-lens-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = '';
+    
+    const rect = cameraPreview.getBoundingClientRect();
+    
+    // Scaling matches standard object-fit: cover mapping
+    const scaleX = rect.width / ocrWidth;
+    const scaleY = rect.height / ocrHeight;
+
+    words.forEach(word => {
+        // High confidence long terms only
+        if (word.confidence < 50 || word.text.trim().length < 3) return;
+
+        const box = document.createElement('div');
+        box.className = 'live-lens-box';
+        
+        const x = word.bbox.x0 * scaleX;
+        const y = word.bbox.y0 * scaleY;
+        const w = (word.bbox.x1 - word.bbox.x0) * scaleX;
+        const h = (word.bbox.y1 - word.bbox.y0) * scaleY;
+        
+        box.style.left = `${x}px`;
+        box.style.top = `${y}px`;
+        box.style.width = `${w}px`;
+        box.style.height = `${h}px`;
+        box.title = `Tap untuk mencari: "${word.text}"`;
+        
+        // Interactive live tap: copies word and triggers automatic search instantly
+        box.addEventListener('click', (e) => {
+            e.stopPropagation();
+            stopCamera();
+            
+            ocrRawText.value = word.text;
+            navigateTo('ocr');
+            
+            if (navigator.vibrate) navigator.vibrate(100);
+            showToast(`Menyeleksi "${word.text}" dari kamera live!`, 'success');
+            
+            // Execute search
+            performBookSearch();
+        });
+        
+        overlay.appendChild(box);
+    });
 }
 
 // Bypasses OCR screen to search and open book detail instantly

@@ -10,7 +10,8 @@ const state = {
     ocrProgressInterval: null,
     searchCache: {},
     activeEditingBookId: null,
-    aiModelInstance: null
+    aiModelInstance: null,
+    lastDetectedWords: []
 };
 
 // -------------------------------------------------------------------------
@@ -92,6 +93,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen to network status changes
     window.addEventListener('online', updateNetworkStatus);
     window.addEventListener('offline', updateNetworkStatus);
+    
+    // Resize handler to adjust Google Lens highlights
+    window.addEventListener('resize', () => {
+        if (state.lastDetectedWords && state.lastDetectedWords.length > 0) {
+            renderLensHighlights(state.lastDetectedWords);
+        }
+    });
 });
 
 // -------------------------------------------------------------------------
@@ -224,6 +232,77 @@ function extractFallbackPattern(text, field) {
     } catch(e) {
         return '';
     }
+}
+
+function renderLensHighlights(words) {
+    const overlay = document.getElementById('lens-highlights-overlay');
+    if (!overlay) return;
+    
+    overlay.innerHTML = ''; // Clear previous highlights
+    
+    const img = document.getElementById('ocr-preview-img');
+    if (!img || !img.complete || img.naturalWidth === 0) return;
+
+    const naturalWidth = img.naturalWidth;
+    const naturalHeight = img.naturalHeight;
+    
+    const rect = img.getBoundingClientRect();
+    
+    // Aspect ratio calculation for object-fit: contain
+    const imgRatio = naturalWidth / naturalHeight;
+    const containerRatio = rect.width / rect.height;
+    
+    let renderedWidth, renderedHeight, leftOffset, topOffset;
+    if (imgRatio > containerRatio) {
+        renderedWidth = rect.width;
+        renderedHeight = rect.width / imgRatio;
+        leftOffset = 0;
+        topOffset = (rect.height - renderedHeight) / 2;
+    } else {
+        renderedHeight = rect.height;
+        renderedWidth = rect.height * imgRatio;
+        leftOffset = (rect.width - renderedWidth) / 2;
+        topOffset = 0;
+    }
+    
+    const scaleX = renderedWidth / naturalWidth;
+    const scaleY = renderedHeight / naturalHeight;
+
+    words.forEach(word => {
+        // Only render words with good confidence or reasonable length
+        if (word.confidence < 45 || word.text.trim().length < 2) return;
+
+        const box = document.createElement('div');
+        box.className = 'lens-box';
+        
+        const x = word.bbox.x0 * scaleX + leftOffset;
+        const y = word.bbox.y0 * scaleY + topOffset;
+        const w = (word.bbox.x1 - word.bbox.x0) * scaleX;
+        const h = (word.bbox.y1 - word.bbox.y0) * scaleY;
+        
+        box.style.left = `${x}px`;
+        box.style.top = `${y}px`;
+        box.style.width = `${w}px`;
+        box.style.height = `${h}px`;
+        box.title = `${word.text} (${Math.round(word.confidence)}%)`;
+        
+        // Google Lens interactive click to copy/fill
+        box.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(word.text);
+            showToast(`Menyalin "${word.text}" ke Clipboard`, 'success');
+            
+            // Add a visual flash
+            box.style.borderColor = '#c084fc';
+            box.style.background = 'rgba(168, 85, 247, 0.4)';
+            setTimeout(() => {
+                box.style.borderColor = 'rgba(129, 140, 248, 0.4)';
+                box.style.background = 'rgba(129, 140, 248, 0.12)';
+            }, 500);
+        });
+
+        overlay.appendChild(box);
+    });
 }
 
 // -------------------------------------------------------------------------
@@ -398,6 +477,11 @@ async function runClientSideOCR(imageSrc) {
     ocrProgressText.textContent = 'Membaca data cover...';
     ocrProgressBar.style.width = '10%';
     ocrRawText.value = '';
+    
+    // Clear Google Lens highlights
+    const overlay = document.getElementById('lens-highlights-overlay');
+    if (overlay) overlay.innerHTML = '';
+    state.lastDetectedWords = [];
 
     try {
         // Initialize Tesseract Worker
@@ -416,6 +500,7 @@ async function runClientSideOCR(imageSrc) {
         // Run recognition
         const ret = await worker.recognize(imageSrc);
         const text = ret.data.text;
+        const words = ret.data.words || [];
         
         await worker.terminate();
 
@@ -423,6 +508,10 @@ async function runClientSideOCR(imageSrc) {
         ocrRawText.value = text.trim();
         ocrProgressOverlay.classList.remove('active');
         showToast('Deteksi teks cover sukses!', 'success');
+        
+        // Render Google Lens word bounding highlights
+        state.lastDetectedWords = words;
+        renderLensHighlights(words);
         
         if (!text.trim()) {
             showToast('Teks cover kurang jelas, ketik manual jika perlu.', 'info');

@@ -1,0 +1,18 @@
+{
+  "name": "PustakaScan - OCR Cover Buku",
+  "short_name": "PustakaScan",
+  "description": "Scan cover buku dengan OCR dan cari data buku online & offline.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "placeholder.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PustakaScan - OCR Cover Buku</title>
+    <meta name="description" content="Aplikasi scan cover buku menggunakan OCR untuk mencari informasi buku secara online dan offline.">
+    <!-- Theme & Mobile Web App Meta -->
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <link rel="shortcut icon" href="icon-192.png" type="image/png">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="app.css">
+    <!-- Tesseract.js for Offline/Client-side OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Status Bar & Header -->
+        <header class="app-header">
+            <div class="logo">
+                <span class="icon-book-open">📚</span>
+                <h1>Pustaka<span>Scan</span></h1>
+            </div>
+            <div class="status-indicator">
+                <span id="connection-status" class="status-badge online">
+                    <span class="dot"></span> Online
+                </span>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-content">
+            <!-- Screen 1: Dashboard / Home -->
+            <section id="screen-dashboard" class="screen active">
+                <div class="hero-section">
+                    <h2>Scan Cover Buku Mudah & Cepat</h2>
+                    <p>Ambil foto cover buku atau upload dari galeri untuk mendeteksi informasi buku secara instan.</p>
+                </div>
+
+                <!-- Quick Action Cards -->
+                <div class="scanner-trigger-zone">
+                    <button id="btn-open-camera" class="action-card primary">
+                        <div class="card-icon">📸</div>
+                        <div class="card-info">
+                            <h3>Buka Kamera</h3>
+                            <p>Ambil foto cover buku langsung</p>
+                        </div>
+                    </button>
+                    
+                    <label for="input-file-upload" class="action-card secondary">
+                        <input type="file" id="input-file-upload" accept="image/*" style="display: none;">
+                        <div class="card-icon">📁</div>
+                        <div class="card-info">
+                            <h3>Pilih Gambar</h3>
+                            <p>Unggah foto cover dari galeri</p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Saved Books List -->
+                <div class="saved-library-section">
+                    <div class="section-header">
+                        <h3>Koleksi Saya (<span id="saved-books-count">0</span>)</h3>
+                        <div class="library-actions">
+                            <button id="btn-export-csv" class="btn-text" title="Ekspor data ke CSV">📥 Ekspor</button>
+                        </div>
+                    </div>
+                    
+                    <div id="empty-library-state" class="empty-state">
+                        <div class="empty-icon">📖</div>
+                        <p>Belum ada buku yang disimpan.</p>
+                        <p class="sub">Buku yang Anda scan akan muncul di sini.</p>
+                    </div>
+
+                    <div id="saved-books-grid" class="books-grid">
+                        <!-- Dynamic items will go here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Screen 2: Camera Capture -->
+            <section id="screen-camera" class="screen">
+                <div class="camera-viewer">
+                    <video id="camera-preview" autoplay playsinline></video>
+                    <canvas id="camera-canvas" style="display: none;"></canvas>
+                    
+                    <!-- Camera HUD overlay -->
+                    <div class="camera-overlay">
+                        <div class="scan-frame"></div>
+                        <p class="scan-tip">Posisikan teks cover buku di dalam area ini</p>
+                    </div>
+
+                    <!-- Camera Controls -->
+                    <div class="camera-controls">
+                        <button id="btn-close-camera" class="btn-circle btn-close" title="Batal">✕</button>
+                        <button id="btn-shutter" class="btn-shutter" title="Ambil Foto"></button>
+                        <button id="btn-switch-camera" class="btn-circle btn-switch" title="Putar Kamera">🔄</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Screen 3: OCR Processing & Editor -->
+            <section id="screen-ocr" class="screen">
+                <div class="back-nav">
+                    <button id="btn-back-to-home" class="btn-back">← Kembali</button>
+                    <h3>Hasil Deteksi Cover</h3>
+                </div>
+
+                <div class="ocr-workflow-container">
+                    <div class="preview-thumbnail-container">
+                        <img id="ocr-preview-img" src="" alt="Preview cover">
+                        <!-- Progress Overlay -->
+                        <div id="ocr-progress-overlay" class="ocr-progress-overlay">
+                            <div class="spinner"></div>
+                            <p id="ocr-progress-text">Mempersiapkan OCR...</p>
+                            <div class="progress-bar-container">
+                                <div id="ocr-progress-bar" class="progress-bar"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ocr-result-form">
+                        <div class="input-group">
+                            <label for="ocr-raw-text">Teks Terdeteksi (Edit jika ada kesalahan):</label>
+                            <textarea id="ocr-raw-text" rows="4" placeholder="Hasil OCR akan muncul di sini..."></textarea>
+                        </div>
+
+                        <div class="search-options">
+                            <button id="btn-search-books" class="btn btn-primary w-full">
+                                🔍 Cari Data Buku
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Screen 4: Search Results -->
+            <section id="screen-results" class="screen">
+                <div class="back-nav">
+                    <button id="btn-back-to-ocr" class="btn-back">← Edit Teks</button>
+                    <h3>Hasil Pencarian</h3>
+                </div>
+
+                <div class="results-container">
+                    <p class="results-info">Menemukan beberapa hasil yang cocok:</p>
+                    
+                    <div id="search-results-list" class="results-list">
+                        <!-- Dynamic search result cards -->
+                    </div>
+
+                    <div class="manual-fallback">
+                        <p>Tidak menemukan buku yang sesuai?</p>
+                        <button id="btn-manual-input" class="btn btn-secondary w-full">
+                            ✏️ Masukkan Data Secara Manual
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Screen 5: Book Detail & Edit Form -->
+            <section id="screen-detail" class="screen">
+                <div class="back-nav">
+                    <button id="btn-back-to-results" class="btn-back">← Kembali</button>
+                    <h3>Detail Informasi Buku</h3>
+                </div>
+
+                <form id="book-detail-form" class="detail-form">
+                    <div class="detail-cover-preview">
+                        <img id="detail-cover-img" src="placeholder.svg" alt="Book cover preview">
+                        <input type="hidden" id="form-cover-url">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="form-title">Judul Buku <span class="required">*</span></label>
+                        <input type="text" id="form-title" required placeholder="Judul Buku">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="form-author">Pengarang</label>
+                            <input type="text" id="form-author" placeholder="Pengarang / Penulis">
+                        </div>
+                        <div class="form-group">
+                            <label for="form-publisher">Penerbit</label>
+                            <input type="text" id="form-publisher" placeholder="Nama Penerbit">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="form-isbn">ISBN</label>
+                            <input type="text" id="form-isbn" placeholder="978-...">
+                        </div>
+                        <div class="form-group">
+                            <label for="form-year">Tahun Terbit</label>
+                            <input type="number" id="form-year" placeholder="Tahun">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="form-notes">Catatan Tambahan</label>
+                        <textarea id="form-notes" rows="2" placeholder="Catatan rak, status pinjam, dll."></textarea>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="btn-cancel-edit" class="btn btn-secondary">Batal</button>
+                        <button type="submit" id="btn-save-book" class="btn btn-primary">💾 Simpan ke Koleksi</button>
+                    </div>
+                </form>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation Bar (Mobile Native Look) -->
+        <footer class="app-nav">
+            <button id="nav-home" class="nav-item active">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Home</span>
+            </button>
+            <button id="nav-scan" class="nav-item-scan">
+                <div class="scan-button-inner">
+                    <span class="nav-icon">📷</span>
+                </div>
+            </button>
+            <button id="nav-about" class="nav-item">
+                <span class="nav-icon">ℹ️</span>
+                <span class="nav-label">Tentang</span>
+            </button>
+        </footer>
+    </div>
+
+    <!-- About Modal Dialog -->
+    <div id="modal-about" class="modal">
+        <div class="modal-content glass">
+            <span class="modal-close">&times;</span>
+            <div class="about-logo">📚</div>
+            <h2>PustakaScan v1.0</h2>
+            <p>Aplikasi scanner cover buku cerdas yang berjalan langsung di browser perangkat mobile Anda.</p>
+            <div class="feature-list">
+                <div class="feature-item">
+                    <span class="f-icon">⚡</span>
+                    <div>
+                        <h4>OCR Klien (Offline)</h4>
+                        <p>Menggunakan Tesseract.js langsung di handphone tanpa server eksternal.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <span class="f-icon">🌐</span>
+                    <div>
+                        <h4>Integrasi Multi-Sumber</h4>
+                        <p>Mencari data buku secara otomatis di Google Books, OpenLibrary, dan API buku gratis lainnya.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <span class="f-icon">📱</span>
+                    <div>
+                        <h4>Dukungan PWA</h4>
+                        <p>Dapat diinstal di layar utama HP Anda dan dijalankan secara offline penuh.</p>
+                    </div>
+                </div>
+            </div>
+            <p class="about-footer">Dirancang khusus untuk performa tinggi & kemudahan deployment via Vercel.</p>
+        </div>
+    </div>
+
+    <!-- Toast Notification System -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

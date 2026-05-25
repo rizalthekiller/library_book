@@ -19,6 +19,8 @@
     <link rel="stylesheet" href="app.css">
     <!-- Tesseract.js for Offline/Client-side OCR -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- Transformers.js for Offline/Client-side AI Model (No flags required!) -->
+    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2"></script>
 </head>
 <body>
     <div class="app-container">
@@ -30,7 +32,7 @@
             </div>
             <div class="status-indicator" style="display: flex; gap: 6px; align-items: center;">
                 <span id="ai-status" class="status-badge offline" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.2); font-size: 0.7rem; padding: 2px 6px;">
-                    ✨ AI Off
+                    ✨ AI Lokal
                 </span>
                 <span id="connection-status" class="status-badge online">
                     <span class="dot"></span> Online
@@ -140,7 +142,7 @@
                                 🔍 Cari Data Buku
                             </button>
                             <button type="button" id="btn-ai-analyze" class="btn btn-secondary w-full" style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%); border-color: rgba(168, 85, 247, 0.3); font-weight: 700;">
-                                ✨ Analisis AI Lokal (Gemini Nano)
+                                ✨ Analisis AI Lokal (Bebas Flags)
                             </button>
                         </div>
                     </div>

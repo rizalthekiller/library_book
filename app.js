@@ -9,7 +9,8 @@ const state = {
     selectedImageBase64: null,
     ocrProgressInterval: null,
     searchCache: {},
-    activeEditingBookId: null
+    activeEditingBookId: null,
+    aiModelInstance: null
 };
 
 // -------------------------------------------------------------------------
@@ -118,93 +119,82 @@ function registerServiceWorker() {
 }
 
 function checkLocalAISupport() {
-    const isSupported = !!(window.ai && (window.ai.languageModel || window.ai.assistant));
-    if (isSupported) {
-        aiStatus.className = 'status-badge online';
-        aiStatus.style.background = 'rgba(168, 85, 247, 0.15)';
-        aiStatus.style.borderColor = 'rgba(168, 85, 247, 0.3)';
-        aiStatus.style.color = '#d8b4fe';
-        aiStatus.innerHTML = '✨ AI Ready';
-    } else {
-        aiStatus.className = 'status-badge offline';
-        aiStatus.style.background = 'rgba(255, 255, 255, 0.05)';
-        aiStatus.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-        aiStatus.style.color = '#64748b';
-        aiStatus.innerHTML = '✨ AI Off';
-    }
+    // Transformers.js runs client-side in WebAssembly/WebGPU. It is supported on all modern browsers!
+    aiStatus.className = 'status-badge online';
+    aiStatus.style.background = 'rgba(168, 85, 247, 0.15)';
+    aiStatus.style.borderColor = 'rgba(168, 85, 247, 0.3)';
+    aiStatus.style.color = '#d8b4fe';
+    aiStatus.innerHTML = '✨ AI Ready';
 }
 
-async function analyzeTextWithGeminiNano() {
+async function analyzeTextWithTransformersJS() {
     const rawText = ocrRawText.value.trim();
     if (!rawText) {
         showToast('Tolong masukkan teks cover terlebih dahulu!', 'error');
         return;
     }
 
-    const hasAI = !!(window.ai && (window.ai.languageModel || window.ai.assistant));
-    if (!hasAI) {
-        alert(
-            "AI Lokal (Gemini Nano) belum aktif di browser Anda!\n\n" +
-            "Cara mengaktifkannya secara gratis di Google Chrome:\n" +
-            "1. Buka tab baru dan ketik URL: chrome://flags\n" +
-            "2. Cari 'Optimization Guide on-device model' dan ubah menjadi 'Enabled BypassPerfRequirement' atau 'Enabled'.\n" +
-            "3. Cari 'Prompt API for Gemini Nano' dan ubah menjadi 'Enabled'.\n" +
-            "4. Relaunch/restart browser Chrome Anda.\n" +
-            "5. Buka kembali aplikasi ini dan tunggu beberapa menit untuk membiarkan Chrome mengunduh model AI portabel secara otomatis."
-        );
-        showToast('Aktifkan Gemini Nano di chrome://flags', 'info');
-        return;
-    }
-
     ocrProgressOverlay.classList.add('active');
-    ocrProgressText.textContent = 'Membuka Sesi AI Lokal...';
-    ocrProgressBar.style.width = '30%';
+    ocrProgressText.textContent = 'Menghubungi AI Lokal (Transformers.js)...';
+    ocrProgressBar.style.width = '5%';
 
     try {
-        let session;
-        if (window.ai.languageModel) {
-            session = await window.ai.languageModel.create({
-                systemPrompt: "Kamu adalah AI asisten perpustakaan lokal. Analisa teks hasil OCR cover buku dan ekstrak data ke format JSON."
+        // Disable local model paths to ensure CDN download
+        transformers.env.allowLocalModels = false;
+        
+        // Cache the pipeline in state.aiModelInstance so it loads instantly on next runs!
+        if (!state.aiModelInstance) {
+            ocrProgressText.textContent = 'Mengunduh Model AI Ringan (~140MB, Sekali saja)...';
+            state.aiModelInstance = await transformers.pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-78M', {
+                progress_callback: (data) => {
+                    if (data.status === 'progress') {
+                        const percentage = Math.round(data.progress);
+                        ocrProgressBar.style.width = `${percentage}%`;
+                        ocrProgressText.textContent = `Mengunduh Model AI Lokal... (${percentage}%)`;
+                    } else if (data.status === 'ready') {
+                        ocrProgressText.textContent = 'Mempersiapkan Model AI...';
+                    }
+                }
             });
-        } else {
-            session = await window.ai.assistant.create();
         }
 
-        ocrProgressText.textContent = 'Gemini Nano sedang memproses data...';
-        ocrProgressBar.style.width = '70%';
+        ocrProgressText.textContent = 'AI sedang memproses teks cover...';
+        ocrProgressBar.style.width = '80%';
 
-        const prompt = `
-        Tolong analisis teks hasil OCR cover buku berikut:
-        "${rawText}"
+        const prompt = `Task: Extract book details (title, author, publisher, isbn, year) from raw OCR text: "${rawText}"
+Format the output strictly as a JSON object:
+{
+  "title": "Title of the book",
+  "author": "Author name",
+  "publisher": "Publisher name",
+  "isbn": "ISBN number",
+  "year": "Year of publication"
+}
+`;
 
-        Ekstrak informasi buku ke format JSON mentah tanpa markdown block (\`\`\`json) atau kata pengantar tambahan. Isi nilai kosong jika tidak ditemukan. Format harus tepat seperti ini:
-        {
-          "title": "Judul Buku",
-          "author": "Nama Penulis/Pengarang",
-          "publisher": "Nama Penerbit",
-          "isbn": "ISBN saja",
-          "year": "Tahun Terbit"
-        }
-        `;
+        const output = await state.aiModelInstance(prompt, {
+            max_new_tokens: 150,
+            temperature: 0.1,
+            repetition_penalty: 1.2
+        });
 
-        const result = await session.prompt(prompt);
+        const result = output[0].generated_text;
         ocrProgressBar.style.width = '100%';
-        session.destroy();
-
         ocrProgressOverlay.classList.remove('active');
 
+        // Parse JSON output
         let parsedBook = {};
         try {
             const cleanResult = result.replace(/```json/g, '').replace(/```/g, '').trim();
             parsedBook = JSON.parse(cleanResult);
         } catch (e) {
-            console.error('Failed to parse AI JSON:', e, result);
+            console.warn('Failed parsing output directly as JSON, using regex extraction:', result);
             parsedBook = {
-                title: extractFallbackPattern(result, 'title') || extractFallbackPattern(result, 'judul') || '',
-                author: extractFallbackPattern(result, 'author') || extractFallbackPattern(result, 'pengarang') || extractFallbackPattern(result, 'penulis') || '',
-                publisher: extractFallbackPattern(result, 'publisher') || extractFallbackPattern(result, 'penerbit') || '',
+                title: extractFallbackPattern(result, 'title') || '',
+                author: extractFallbackPattern(result, 'author') || '',
+                publisher: extractFallbackPattern(result, 'publisher') || '',
                 isbn: extractFallbackPattern(result, 'isbn') || '',
-                year: extractFallbackPattern(result, 'year') || extractFallbackPattern(result, 'tahun') || ''
+                year: extractFallbackPattern(result, 'year') || ''
             };
         }
 
@@ -217,10 +207,10 @@ async function analyzeTextWithGeminiNano() {
             coverUrl: ''
         });
 
-        showToast('AI berhasil menganalisis cover!', 'success');
+        showToast('AI berhasil mengekstrak informasi buku!', 'success');
 
     } catch (err) {
-        console.error('Gemini Nano prompt error:', err);
+        console.error('Transformers.js run error:', err);
         ocrProgressOverlay.classList.remove('active');
         showToast('Gagal memproses dengan AI lokal.', 'error');
     }
@@ -284,7 +274,7 @@ function setupEventListeners() {
     // OCR Workflow Actions
     btnBackToHome.addEventListener('click', () => navigateTo('dashboard'));
     btnSearchBooks.addEventListener('click', performBookSearch);
-    btnAiAnalyze.addEventListener('click', analyzeTextWithGeminiNano);
+    btnAiAnalyze.addEventListener('click', analyzeTextWithTransformersJS);
 
     // Results Actions
     btnBackToOcr.addEventListener('click', () => navigateTo('ocr'));

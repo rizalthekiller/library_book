@@ -418,7 +418,7 @@ function setupEventListeners() {
     // OCR Workflow Actions
     btnBackToHome.addEventListener('click', () => navigateTo('dashboard'));
     btnSearchBooks.addEventListener('click', performBookSearch);
-    btnAiAnalyze.addEventListener('click', analyzeTextWithTransformersJS);
+    btnAiAnalyze.addEventListener('click', runGoogleLensAutoImport);
     btnCloudOcr.addEventListener('click', runCloudOCR);
 
     // Results Actions
@@ -1675,4 +1675,181 @@ function appendChatBubble(sender, text, customName = 'AI') {
     geminiChatHistory.appendChild(bubble);
     geminiChatHistory.scrollTop = geminiChatHistory.scrollHeight;
     return bubble.querySelector('.bubble-text');
+}
+
+// -------------------------------------------------------------------------
+// GOOGLE LENS MULTIMODAL AUTO-IMPORT SERVICES
+// -------------------------------------------------------------------------
+async function analyzeImageWithGeminiMultimodal(base64Data, apiKey) {
+    // Remove data:image/...;base64, prefix if present
+    const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
+    
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contents: [{
+                parts: [
+                    {
+                        text: `Anda adalah Google Lens cerdas untuk perpustakaan.
+Analisis gambar cover buku ini dengan cermat. Identifikasi:
+1. Judul Buku (title)
+2. Nama Penulis/Pengarang (author)
+3. Penerbit (publisher)
+4. Tahun Terbit (year - tebak angka tahun terbit jika tidak tercantum secara eksplisit)
+5. Nomor ISBN (isbn - jika terlihat di cover atau barcode belakang)
+
+Kembalikan respon HANYA berupa JSON mentah dengan format berikut:
+{
+  "title": "Judul Buku",
+  "author": "Nama Penulis",
+  "publisher": "Penerbit",
+  "year": "Tahun",
+  "isbn": "ISBN"
+}
+Jangan berikan markdown backticks, jangan berikan teks pendukung. Berikan string JSON bersih.`
+                    },
+                    {
+                        inlineData: {
+                            mimeType: "image/jpeg",
+                            data: cleanBase64
+                        }
+                    }
+                ]
+            }]
+        })
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData.error?.message || response.statusText;
+        throw new Error(`Gemini Multimodal Error: ${errMsg}`);
+    }
+
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+}
+
+async function runGoogleLensAutoImport() {
+    const aiKey = localStorage.getItem('pustaka_scan_ai_key');
+    if (!aiKey) {
+        showToast('API Key AI belum diatur! Silakan isi di menu Tentang.', 'error');
+        modalAbout.classList.add('active');
+        return;
+    }
+
+    const provider = localStorage.getItem('pustaka_scan_ai_provider') || 'gemini';
+    
+    // Show premium scanning overlay / animation
+    ocrProgressOverlay.classList.add('active');
+    ocrProgressText.textContent = `Google Lens: Menganalisis Gambar via ${provider === 'gemini' ? 'Gemini 1.5' : 'DeepSeek V3'}...`;
+    ocrProgressBar.style.width = '30%';
+
+    let bookData = null;
+
+    try {
+        const base64Image = state.selectedImageBase64 || ocrPreviewImg.src;
+        if (!base64Image || base64Image.startsWith('placeholder')) {
+            throw new Error('Tidak ada gambar cover yang dimuat. Silakan ambil foto atau unggah gambar dulu.');
+        }
+
+        if (provider === 'gemini') {
+            // Native Multimodal Image Analysis!
+            ocrProgressBar.style.width = '60%';
+            const resText = await analyzeImageWithGeminiMultimodal(base64Image, aiKey);
+            const cleanRes = resText.replace(/```json/g, '').replace(/```/g, '').trim();
+            bookData = JSON.parse(cleanRes);
+        } else {
+            // DeepSeek - requires OCR first
+            ocrProgressText.textContent = 'Google Lens: Membaca tulisan cover buku (OCR)...';
+            ocrProgressBar.style.width = '40%';
+            
+            // Perform fast Tesseract OCR
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = ocrPreviewImg;
+            canvas.width = img.naturalWidth || 640;
+            canvas.height = img.naturalHeight || 480;
+            ctx.drawImage(img, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            
+            const ocrResult = await state.liveOcrWorker.recognize(dataUrl);
+            const rawText = ocrResult.data.text || "";
+            
+            ocrProgressText.textContent = 'Google Lens: Menyusun metadata via DeepSeek AI...';
+            ocrProgressBar.style.width = '70%';
+            
+            const prompt = `Anda adalah Google Lens cerdas. Ekstrak data buku dari teks cover mentah hasil OCR berikut:
+"${rawText}"
+
+Kembalikan respon HANYA berupa JSON mentah dengan format:
+{
+  "title": "Judul Buku",
+  "author": "Nama Penulis",
+  "publisher": "Penerbit",
+  "year": "Tahun",
+  "isbn": "ISBN"
+}
+Jangan berikan markdown backticks atau teks pendukung.`;
+            
+            const resText = await callDeepSeekAPI(prompt, aiKey);
+            const cleanRes = resText.replace(/```json/g, '').replace(/```/g, '').trim();
+            bookData = JSON.parse(cleanRes);
+        }
+
+        if (!bookData || !bookData.title) {
+            throw new Error('Gagal mengenali judul buku dari gambar cover.');
+        }
+
+        ocrProgressText.textContent = 'Google Lens: Mencari detail tambahan online...';
+        ocrProgressBar.style.width = '85%';
+
+        // Optional: Perform automatic internet search using the extracted title to find high-res cover and ISBN!
+        let finalCoverUrl = '';
+        try {
+            const onlineResults = await fetchBooksFromAPIs(bookData.title);
+            if (onlineResults && onlineResults.length > 0) {
+                const matched = onlineResults[0];
+                if (!bookData.author) bookData.author = matched.author;
+                if (!bookData.publisher) bookData.publisher = matched.publisher;
+                if (!bookData.year) bookData.year = matched.year;
+                if (!bookData.isbn) bookData.isbn = matched.isbn;
+                finalCoverUrl = matched.coverUrl || '';
+            }
+        } catch (searchErr) {
+            console.warn('Silent search bypass:', searchErr);
+        }
+
+        // Save automatically directly to database!
+        const newBook = {
+            id: 'book_' + Date.now(),
+            title: bookData.title,
+            author: bookData.author || 'Tidak Diketahui',
+            publisher: bookData.publisher || 'Tidak Diketahui',
+            isbn: bookData.isbn || '',
+            year: bookData.year || '',
+            notes: 'Diimpor otomatis via Google Lens AI',
+            coverBase64: base64Image.startsWith('data:image') ? base64Image : null,
+            coverUrl: finalCoverUrl,
+            dateAdded: new Date().toISOString()
+        };
+
+        state.savedBooks.push(newBook);
+        localStorage.setItem('pustaka_scan_library', JSON.stringify(state.savedBooks));
+        loadSavedBooks();
+
+        ocrProgressOverlay.classList.remove('active');
+        showToast(`Google Lens: "${newBook.title}" berhasil diimpor!`, 'success');
+        
+        // Auto-navigate back to dashboard directly! Pure Google Lens automation!
+        navigateTo('dashboard');
+
+    } catch (err) {
+        console.error('Google Lens auto-import failed:', err);
+        ocrProgressOverlay.classList.remove('active');
+        showToast(`Auto-Import Gagal: ${err.message}`, 'error');
+    }
 }

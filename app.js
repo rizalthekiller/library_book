@@ -87,12 +87,39 @@ const toastContainer = document.getElementById('toast-container');
 // -------------------------------------------------------------------------
 // INITIALIZATION
 // -------------------------------------------------------------------------
-document.addEventListener('DOMContentLoaded', () => {
-    loadSavedBooks();
-    setupEventListeners();
-    updateNetworkStatus();
-    registerServiceWorker();
-    checkLocalAISupport();
+// Bulletproof Initialization Lifecycle
+function initializeApp() {
+    console.log('PustakaScan: Starting application initialization...');
+    try {
+        loadSavedBooks();
+    } catch (e) {
+        console.error('PustakaScan: Failed to load saved books:', e);
+    }
+    
+    try {
+        setupEventListeners();
+        console.log('PustakaScan: Event listeners registered successfully.');
+    } catch (e) {
+        console.error('PustakaScan: Failed to setup event listeners:', e);
+    }
+    
+    try {
+        updateNetworkStatus();
+    } catch (e) {
+        console.error('PustakaScan: Failed to update network status:', e);
+    }
+    
+    try {
+        registerServiceWorker();
+    } catch (e) {
+        console.error('PustakaScan: Failed to register Service Worker:', e);
+    }
+    
+    try {
+        checkLocalAISupport();
+    } catch (e) {
+        console.error('PustakaScan: Failed to check AI support:', e);
+    }
     
     // Listen to network status changes
     window.addEventListener('online', updateNetworkStatus);
@@ -104,7 +131,14 @@ document.addEventListener('DOMContentLoaded', () => {
             renderLensHighlights(state.lastDetectedWords);
         }
     });
-});
+}
+
+// Execute immediately if DOM is already parsed, otherwise wait for DOMContentLoaded
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initializeApp();
+} else {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+}
 
 // -------------------------------------------------------------------------
 // NETWORK & STATUS HANDLERS

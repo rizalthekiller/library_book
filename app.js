@@ -612,7 +612,8 @@ async function performBarcodeDirectSearch(isbn) {
     ocrProgressBar.style.width = '50%';
     
     try {
-        const books = await fetchBooksFromAPIs(`isbn:${isbn}`);
+        const cleanIsbn = isbn.replace(/\D/g, '');
+        const books = await fetchBooksFromAPIs(cleanIsbn);
         ocrProgressOverlay.classList.remove('active');
         
         if (books.length > 0) {

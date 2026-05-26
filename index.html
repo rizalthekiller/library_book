@@ -228,7 +228,24 @@
                         <textarea id="form-notes" rows="2" placeholder="Catatan rak, status pinjam, dll."></textarea>
                     </div>
 
-                    <div class="form-actions">
+                    <!-- Gemini AI Assistant Drawer -->
+                    <div class="gemini-ai-card glass" id="gemini-ai-card" style="margin-top: 24px; border: 1px solid rgba(0, 242, 254, 0.25); border-radius: var(--border-radius-md); padding: 18px; background: rgba(0, 242, 254, 0.03); display: none;">
+                        <h4 style="color: var(--color-accent-blue); display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 700; font-size: 0.95rem;">
+                            🤖 Asisten AI Buku (Gemini 1.5 Flash)
+                        </h4>
+                        <p style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.3;">Tanyakan apa saja tentang buku ini (ringkasan, pembahasan bab, rekomendasi, dll.)</p>
+                        
+                        <div id="gemini-chat-history" style="max-height: 180px; overflow-y: auto; font-size: 0.8rem; margin-bottom: 12px; border-radius: var(--border-radius-sm); background: rgba(0,0,0,0.25); padding: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 8px;">
+                            <!-- Chat bubbles go here -->
+                        </div>
+                        
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="input-gemini-chat" placeholder="Tanyakan tentang isi buku ini..." style="flex: 1; padding: 8px 12px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none; transition: var(--transition-smooth);">
+                            <button type="button" id="btn-send-gemini-chat" class="btn btn-primary" style="padding: 8px 16px; font-size: 0.8rem; font-weight: 700; background: var(--grad-success); box-shadow: 0 4px 12px rgba(0, 242, 254, 0.2); border: none;">Kirim</button>
+                        </div>
+                    </div>
+
+                    <div class="form-actions" style="margin-top: 24px;">
                         <button type="button" id="btn-cancel-edit" class="btn btn-secondary">Batal</button>
                         <button type="submit" id="btn-save-book" class="btn btn-primary">💾 Simpan ke Koleksi</button>
                     </div>
@@ -284,7 +301,18 @@
                     </div>
                 </div>
             </div>
-            <p class="about-footer">Dirancang khusus untuk performa tinggi & kemudahan deployment via Vercel.</p>
+
+            <!-- Gemini AI Key Configuration -->
+            <div class="api-key-setting" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; text-align: left;">
+                <h4 style="margin-bottom: 4px; color: var(--color-accent-blue); display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 700;">🤖 AI Gemini Integration</h4>
+                <p style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.3;">Masukkan API Key Gemini untuk mengaktifkan Asisten AI Buku & Rekonstruksi Metadata Cerdas secara gratis.</p>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="password" id="input-gemini-key" placeholder="Paste Gemini API Key..." style="flex: 1; padding: 8px 12px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none;">
+                    <button type="button" id="btn-save-gemini-key" class="btn btn-primary" style="padding: 8px 14px; font-size: 0.8rem; font-weight: 700; height: 34px;">Simpan</button>
+                </div>
+            </div>
+
+            <p class="about-footer" style="margin-top: 16px;">Dirancang khusus untuk performa tinggi & kemudahan deployment via Vercel.</p>
         </div>
     </div>
 

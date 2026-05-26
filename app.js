@@ -84,6 +84,14 @@ const modalAbout = document.getElementById('modal-about');
 const modalClose = document.querySelector('.modal-close');
 const toastContainer = document.getElementById('toast-container');
 
+// Gemini Elements
+const inputGeminiKey = document.getElementById('input-gemini-key');
+const btnSaveGeminiKey = document.getElementById('btn-save-gemini-key');
+const geminiAiCard = document.getElementById('gemini-ai-card');
+const geminiChatHistory = document.getElementById('gemini-chat-history');
+const inputGeminiChat = document.getElementById('input-gemini-chat');
+const btnSendGeminiChat = document.getElementById('btn-send-gemini-chat');
+
 // -------------------------------------------------------------------------
 // INITIALIZATION
 // -------------------------------------------------------------------------
@@ -92,8 +100,13 @@ function initializeApp() {
     console.log('PustakaScan: Starting application initialization...');
     try {
         loadSavedBooks();
+        const storedKey = localStorage.getItem('pustaka_scan_gemini_key');
+        if (storedKey) {
+            inputGeminiKey.value = storedKey;
+            console.log('PustakaScan: Gemini API Key loaded.');
+        }
     } catch (e) {
-        console.error('PustakaScan: Failed to load saved books:', e);
+        console.error('PustakaScan: Failed to load saved books or API Key:', e);
     }
     
     try {
@@ -415,6 +428,22 @@ function setupEventListeners() {
         }
     });
     bookDetailForm.addEventListener('submit', saveBookToCollection);
+
+    // Save Gemini API Key
+    btnSaveGeminiKey.addEventListener('click', () => {
+        const key = inputGeminiKey.value.trim();
+        if (key) {
+            localStorage.setItem('pustaka_scan_gemini_key', key);
+            showToast('Gemini API Key disimpan!', 'success');
+            modalAbout.classList.remove('active');
+        } else {
+            localStorage.removeItem('pustaka_scan_gemini_key');
+            showToast('Gemini API Key dihapus.', 'info');
+        }
+    });
+
+    // Send chat message to Gemini
+    btnSendGeminiChat.addEventListener('click', handleGeminiChatSend);
 }
 
 // Decide camera or file input based on screen and online capabilities
@@ -662,6 +691,45 @@ async function performBarcodeDirectSearch(isbn) {
             });
             showToast('Buku berhasil ditemukan via ISBN!', 'success');
         } else {
+            const geminiKey = localStorage.getItem('pustaka_scan_gemini_key');
+            if (geminiKey) {
+                try {
+                    ocrProgressOverlay.classList.add('active');
+                    ocrProgressText.textContent = 'Merekontruksi data via Gemini AI...';
+                    ocrProgressBar.style.width = '75%';
+                    
+                    const prompt = `Anda adalah asisten data perpustakaan pintar.
+Cari informasi buku asli dengan nomor ISBN: "${cleanIsbn}".
+Gunakan basis pengetahuan internal Anda untuk menemukan judul, penulis, penerbit, dan tahun terbit buku tersebut.
+Kembalikan respon HANYA berupa objek JSON mentah berformat:
+{
+  "title": "Judul Buku Lengkap",
+  "author": "Nama Penulis",
+  "publisher": "Penerbit",
+  "year": "Tahun Terbit (angka saja)"
+}
+Jangan menambahkan teks pembuka, penutup, backticks, atau markdown block. Langsung output string JSON.`;
+                    
+                    const resText = await callGeminiAPI(prompt);
+                    const cleanRes = resText.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const b = JSON.parse(cleanRes);
+                    
+                    ocrProgressOverlay.classList.remove('active');
+                    openDetailForm({
+                        title: b.title || '',
+                        author: b.author || '',
+                        publisher: b.publisher || '',
+                        isbn: isbn,
+                        year: b.year || '',
+                        coverUrl: ''
+                    });
+                    showToast('Buku ditemukan & direkonstruksi via Gemini AI!', 'success');
+                    return;
+                } catch (geminiErr) {
+                    console.error('Gemini direct ISBN reconstruction failed:', geminiErr);
+                }
+            }
+
             // Pre-fill ISBN but open manual form
             openDetailForm({
                 title: '',
@@ -1345,6 +1413,17 @@ function editSavedBook(bookId) {
     formIsbn.value = book.isbn || '';
     formYear.value = book.year || '';
     formNotes.value = book.notes || '';
+
+    // Handle Gemini AI Card visibility
+    const geminiKey = localStorage.getItem('pustaka_scan_gemini_key');
+    if (geminiKey) {
+        geminiAiCard.style.display = 'block';
+        geminiChatHistory.innerHTML = '';
+        geminiChatHistory.style.display = 'none';
+        inputGeminiChat.value = '';
+    } else {
+        geminiAiCard.style.display = 'none';
+    }
 }
 
 function deleteBook(bookId) {
@@ -1426,4 +1505,105 @@ function showToast(message, type = 'info') {
             toast.remove();
         }, 300);
     }, 3000);
+}
+
+// -------------------------------------------------------------------------
+// GOOGLE GEMINI AI SERVICES
+// -------------------------------------------------------------------------
+async function callGeminiAPI(prompt) {
+    const apiKey = localStorage.getItem('pustaka_scan_gemini_key');
+    if (!apiKey) {
+        throw new Error('API Key Gemini belum diset. Silakan isi di menu Tentang.');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contents: [{
+                parts: [{ text: prompt }]
+            }]
+        })
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData.error?.message || response.statusText;
+        throw new Error(`API Gemini Error: ${errMsg}`);
+    }
+
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+}
+
+async function handleGeminiChatSend() {
+    const query = inputGeminiChat.value.trim();
+    if (!query) return;
+
+    // Append user bubble to chat history
+    appendChatBubble('user', query);
+    inputGeminiChat.value = '';
+    
+    // Append a loading/typing indicator bubble
+    const typingBubble = appendChatBubble('ai', 'Sedang memikirkan jawaban...');
+    
+    try {
+        const bookTitle = formTitle.value || 'Buku Tidak Diketahui';
+        const bookAuthor = formAuthor.value || 'Penulis Tidak Diketahui';
+        const prompt = `Context: Anda adalah Gemma/Gemini AI, sebuah asisten cerdas khusus buku.
+Buku saat ini: "${bookTitle}" oleh ${bookAuthor}.
+Pertanyaan User: "${query}"
+Berikan jawaban yang singkat, sangat informatif, dan ramah dalam Bahasa Indonesia (maksimal 3-4 kalimat).`;
+
+        const reply = await callGeminiAPI(prompt);
+        typingBubble.textContent = reply;
+    } catch (error) {
+        console.error('Gemini Chat error:', error);
+        typingBubble.textContent = `⚠️ Error: ${error.message}`;
+        typingBubble.style.color = '#ef4444';
+    }
+    
+    // Auto-scroll to bottom of chat
+    geminiChatHistory.scrollTop = geminiChatHistory.scrollHeight;
+}
+
+function appendChatBubble(sender, text) {
+    geminiChatHistory.style.display = 'flex';
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${sender}`;
+    
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    bubble.innerHTML = `
+        <div style="font-weight: 700; font-size: 0.72rem; color: ${sender === 'user' ? '#38bdf8' : '#c084fc'}; margin-bottom: 2px;">
+            ${sender === 'user' ? 'Anda' : '🤖 Gemma AI'}
+        </div>
+        <div class="bubble-text" style="line-height: 1.4;">${text}</div>
+        <div style="font-size: 0.6rem; color: rgba(255,255,255,0.4); text-align: right; margin-top: 4px;">${time}</div>
+    `;
+    
+    // Quick CSS styles for bubbles
+    bubble.style.padding = '8px 12px';
+    bubble.style.borderRadius = '8px';
+    bubble.style.maxWidth = '85%';
+    bubble.style.fontSize = '0.78rem';
+    bubble.style.color = '#fff';
+    bubble.style.marginBottom = '8px';
+    
+    if (sender === 'user') {
+        bubble.style.alignSelf = 'flex-end';
+        bubble.style.background = 'rgba(59, 130, 246, 0.2)';
+        bubble.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+    } else {
+        bubble.style.alignSelf = 'flex-start';
+        bubble.style.background = 'rgba(168, 85, 247, 0.15)';
+        bubble.style.border = '1px solid rgba(168, 85, 247, 0.25)';
+    }
+    
+    geminiChatHistory.appendChild(bubble);
+    geminiChatHistory.scrollTop = geminiChatHistory.scrollHeight;
+    return bubble.querySelector('.bubble-text');
 }

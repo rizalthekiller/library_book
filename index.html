@@ -302,13 +302,21 @@
                 </div>
             </div>
 
-            <!-- Gemini AI Key Configuration -->
+            <!-- AI Configuration -->
             <div class="api-key-setting" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; text-align: left;">
-                <h4 style="margin-bottom: 4px; color: var(--color-accent-blue); display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 700;">🤖 AI Gemini Integration</h4>
-                <p style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.3;">Masukkan API Key Gemini untuk mengaktifkan Asisten AI Buku & Rekonstruksi Metadata Cerdas secara gratis.</p>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="password" id="input-gemini-key" placeholder="Paste Gemini API Key..." style="flex: 1; padding: 8px 12px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none;">
-                    <button type="button" id="btn-save-gemini-key" class="btn btn-primary" style="padding: 8px 14px; font-size: 0.8rem; font-weight: 700; height: 34px;">Simpan</button>
+                <h4 style="margin-bottom: 4px; color: var(--color-accent-blue); display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 700;">🤖 Integrasi AI Cerdas (Free Tier)</h4>
+                <p style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.3;">Pilih AI Provider gratis untuk mengaktifkan Asisten AI Buku & Rekonstruksi Metadata Cerdas.</p>
+                
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+                    <select id="select-ai-provider" style="padding: 8px 12px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none; width: 100%; cursor: pointer;">
+                        <option value="gemini">Google Gemini 1.5 Flash (Bebas / Gratis)</option>
+                        <option value="deepseek">DeepSeek Chat V3 / R1 (Free Credit)</option>
+                    </select>
+                    
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="password" id="input-ai-key" placeholder="Masukkan API Key..." style="flex: 1; padding: 8px 12px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none;">
+                        <button type="button" id="btn-save-ai-config" class="btn btn-primary" style="padding: 8px 14px; font-size: 0.8rem; font-weight: 700; height: 34px;">Simpan</button>
+                    </div>
                 </div>
             </div>
 

@@ -84,9 +84,10 @@ const modalAbout = document.getElementById('modal-about');
 const modalClose = document.querySelector('.modal-close');
 const toastContainer = document.getElementById('toast-container');
 
-// Gemini Elements
-const inputGeminiKey = document.getElementById('input-gemini-key');
-const btnSaveGeminiKey = document.getElementById('btn-save-gemini-key');
+// AI Configuration Elements
+const selectAiProvider = document.getElementById('select-ai-provider');
+const inputAiKey = document.getElementById('input-ai-key');
+const btnSaveAiConfig = document.getElementById('btn-save-ai-config');
 const geminiAiCard = document.getElementById('gemini-ai-card');
 const geminiChatHistory = document.getElementById('gemini-chat-history');
 const inputGeminiChat = document.getElementById('input-gemini-chat');
@@ -100,13 +101,25 @@ function initializeApp() {
     console.log('PustakaScan: Starting application initialization...');
     try {
         loadSavedBooks();
-        const storedKey = localStorage.getItem('pustaka_scan_gemini_key');
+        const storedProvider = localStorage.getItem('pustaka_scan_ai_provider') || 'gemini';
+        let storedKey = localStorage.getItem('pustaka_scan_ai_key');
+        
+        // Auto-migrate old Gemini key if present
+        if (!storedKey) {
+            storedKey = localStorage.getItem('pustaka_scan_gemini_key');
+            if (storedKey) {
+                localStorage.setItem('pustaka_scan_ai_key', storedKey);
+                localStorage.setItem('pustaka_scan_ai_provider', 'gemini');
+            }
+        }
+        
+        selectAiProvider.value = storedProvider;
         if (storedKey) {
-            inputGeminiKey.value = storedKey;
-            console.log('PustakaScan: Gemini API Key loaded.');
+            inputAiKey.value = storedKey;
+            console.log(`PustakaScan: AI Configuration loaded (${storedProvider}).`);
         }
     } catch (e) {
-        console.error('PustakaScan: Failed to load saved books or API Key:', e);
+        console.error('PustakaScan: Failed to load saved books or AI configuration:', e);
     }
     
     try {
@@ -429,16 +442,19 @@ function setupEventListeners() {
     });
     bookDetailForm.addEventListener('submit', saveBookToCollection);
 
-    // Save Gemini API Key
-    btnSaveGeminiKey.addEventListener('click', () => {
-        const key = inputGeminiKey.value.trim();
+    // Save Multi-AI Configuration
+    btnSaveAiConfig.addEventListener('click', () => {
+        const provider = selectAiProvider.value;
+        const key = inputAiKey.value.trim();
         if (key) {
-            localStorage.setItem('pustaka_scan_gemini_key', key);
-            showToast('Gemini API Key disimpan!', 'success');
+            localStorage.setItem('pustaka_scan_ai_provider', provider);
+            localStorage.setItem('pustaka_scan_ai_key', key);
+            showToast(`AI ${provider === 'gemini' ? 'Gemini' : 'DeepSeek'} berhasil dikonfigurasi!`, 'success');
             modalAbout.classList.remove('active');
         } else {
-            localStorage.removeItem('pustaka_scan_gemini_key');
-            showToast('Gemini API Key dihapus.', 'info');
+            localStorage.removeItem('pustaka_scan_ai_provider');
+            localStorage.removeItem('pustaka_scan_ai_key');
+            showToast('Konfigurasi AI dikosongkan.', 'info');
         }
     });
 
@@ -691,11 +707,11 @@ async function performBarcodeDirectSearch(isbn) {
             });
             showToast('Buku berhasil ditemukan via ISBN!', 'success');
         } else {
-            const geminiKey = localStorage.getItem('pustaka_scan_gemini_key');
-            if (geminiKey) {
+            const aiKey = localStorage.getItem('pustaka_scan_ai_key');
+            if (aiKey) {
                 try {
                     ocrProgressOverlay.classList.add('active');
-                    ocrProgressText.textContent = 'Merekontruksi data via Gemini AI...';
+                    ocrProgressText.textContent = 'Merekonstruksi data via Asisten AI...';
                     ocrProgressBar.style.width = '75%';
                     
                     const prompt = `Anda adalah asisten data perpustakaan pintar.
@@ -710,7 +726,7 @@ Kembalikan respon HANYA berupa objek JSON mentah berformat:
 }
 Jangan menambahkan teks pembuka, penutup, backticks, atau markdown block. Langsung output string JSON.`;
                     
-                    const resText = await callGeminiAPI(prompt);
+                    const resText = await callSelectedAI(prompt);
                     const cleanRes = resText.replace(/```json/g, '').replace(/```/g, '').trim();
                     const b = JSON.parse(cleanRes);
                     
@@ -723,10 +739,10 @@ Jangan menambahkan teks pembuka, penutup, backticks, atau markdown block. Langsu
                         year: b.year || '',
                         coverUrl: ''
                     });
-                    showToast('Buku ditemukan & direkonstruksi via Gemini AI!', 'success');
+                    showToast('Buku ditemukan & direkonstruksi via AI!', 'success');
                     return;
                 } catch (geminiErr) {
-                    console.error('Gemini direct ISBN reconstruction failed:', geminiErr);
+                    console.error('AI direct ISBN reconstruction failed:', geminiErr);
                 }
             }
 
@@ -1246,6 +1262,8 @@ function openDetailForm(book) {
     formIsbn.value = book.isbn || '';
     formYear.value = book.year || '';
     formNotes.value = '';
+
+    updateAICardVisibility();
 }
 
 function openManualInputForm() {
@@ -1414,16 +1432,7 @@ function editSavedBook(bookId) {
     formYear.value = book.year || '';
     formNotes.value = book.notes || '';
 
-    // Handle Gemini AI Card visibility
-    const geminiKey = localStorage.getItem('pustaka_scan_gemini_key');
-    if (geminiKey) {
-        geminiAiCard.style.display = 'block';
-        geminiChatHistory.innerHTML = '';
-        geminiChatHistory.style.display = 'none';
-        inputGeminiChat.value = '';
-    } else {
-        geminiAiCard.style.display = 'none';
-    }
+    updateAICardVisibility();
 }
 
 function deleteBook(bookId) {
@@ -1508,14 +1517,42 @@ function showToast(message, type = 'info') {
 }
 
 // -------------------------------------------------------------------------
-// GOOGLE GEMINI AI SERVICES
+// MULTI-PROVIDER AI SERVICES (Google Gemini & DeepSeek Support)
 // -------------------------------------------------------------------------
-async function callGeminiAPI(prompt) {
-    const apiKey = localStorage.getItem('pustaka_scan_gemini_key');
-    if (!apiKey) {
-        throw new Error('API Key Gemini belum diset. Silakan isi di menu Tentang.');
+function updateAICardVisibility() {
+    const aiKey = localStorage.getItem('pustaka_scan_ai_key');
+    const aiProvider = localStorage.getItem('pustaka_scan_ai_provider') || 'gemini';
+    
+    if (aiKey) {
+        geminiAiCard.style.display = 'block';
+        const cardTitle = geminiAiCard.querySelector('h4');
+        if (cardTitle) {
+            cardTitle.innerHTML = `🤖 Asisten AI Buku (${aiProvider === 'gemini' ? 'Gemini 1.5 Flash' : 'DeepSeek V3'})`;
+        }
+        geminiChatHistory.innerHTML = '';
+        geminiChatHistory.style.display = 'none';
+        inputGeminiChat.value = '';
+    } else {
+        geminiAiCard.style.display = 'none';
     }
+}
 
+async function callSelectedAI(prompt) {
+    const provider = localStorage.getItem('pustaka_scan_ai_provider') || 'gemini';
+    const apiKey = localStorage.getItem('pustaka_scan_ai_key');
+    
+    if (!apiKey) {
+        throw new Error('API Key belum diatur. Silakan isi di menu Tentang.');
+    }
+    
+    if (provider === 'gemini') {
+        return await callGeminiAPI(prompt, apiKey);
+    } else {
+        return await callDeepSeekAPI(prompt, apiKey);
+    }
+}
+
+async function callGeminiAPI(prompt, apiKey) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
         method: 'POST',
@@ -1532,36 +1569,67 @@ async function callGeminiAPI(prompt) {
     if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const errMsg = errData.error?.message || response.statusText;
-        throw new Error(`API Gemini Error: ${errMsg}`);
+        throw new Error(`Gemini API Error: ${errMsg}`);
     }
 
     const data = await response.json();
     return data.candidates[0].content.parts[0].text;
 }
 
+async function callDeepSeekAPI(prompt, apiKey) {
+    const url = 'https://api.deepseek.com/v1/chat/completions';
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 250
+        })
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData.error?.message || response.statusText;
+        throw new Error(`DeepSeek API Error: ${errMsg}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
 async function handleGeminiChatSend() {
     const query = inputGeminiChat.value.trim();
     if (!query) return;
 
+    const provider = localStorage.getItem('pustaka_scan_ai_provider') || 'gemini';
+    const providerName = provider === 'gemini' ? 'Gemma AI' : 'DeepSeek AI';
+
     // Append user bubble to chat history
-    appendChatBubble('user', query);
+    appendChatBubble('user', query, 'Anda');
     inputGeminiChat.value = '';
     
     // Append a loading/typing indicator bubble
-    const typingBubble = appendChatBubble('ai', 'Sedang memikirkan jawaban...');
+    const typingBubble = appendChatBubble('ai', 'Sedang memikirkan jawaban...', providerName);
     
     try {
         const bookTitle = formTitle.value || 'Buku Tidak Diketahui';
         const bookAuthor = formAuthor.value || 'Penulis Tidak Diketahui';
-        const prompt = `Context: Anda adalah Gemma/Gemini AI, sebuah asisten cerdas khusus buku.
+        const prompt = `Context: Anda adalah asisten cerdas khusus buku berbasis ${providerName}.
 Buku saat ini: "${bookTitle}" oleh ${bookAuthor}.
 Pertanyaan User: "${query}"
 Berikan jawaban yang singkat, sangat informatif, dan ramah dalam Bahasa Indonesia (maksimal 3-4 kalimat).`;
 
-        const reply = await callGeminiAPI(prompt);
+        const reply = await callSelectedAI(prompt);
         typingBubble.textContent = reply;
     } catch (error) {
-        console.error('Gemini Chat error:', error);
+        console.error('AI Chat error:', error);
         typingBubble.textContent = `⚠️ Error: ${error.message}`;
         typingBubble.style.color = '#ef4444';
     }
@@ -1570,16 +1638,17 @@ Berikan jawaban yang singkat, sangat informatif, dan ramah dalam Bahasa Indonesi
     geminiChatHistory.scrollTop = geminiChatHistory.scrollHeight;
 }
 
-function appendChatBubble(sender, text) {
+function appendChatBubble(sender, text, customName = 'AI') {
     geminiChatHistory.style.display = 'flex';
     const bubble = document.createElement('div');
     bubble.className = `chat-bubble ${sender}`;
     
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const displayName = sender === 'user' ? 'Anda' : customName;
     
     bubble.innerHTML = `
         <div style="font-weight: 700; font-size: 0.72rem; color: ${sender === 'user' ? '#38bdf8' : '#c084fc'}; margin-bottom: 2px;">
-            ${sender === 'user' ? 'Anda' : '🤖 Gemma AI'}
+            ${displayName}
         </div>
         <div class="bubble-text" style="line-height: 1.4;">${text}</div>
         <div style="font-size: 0.6rem; color: rgba(255,255,255,0.4); text-align: right; margin-top: 4px;">${time}</div>
